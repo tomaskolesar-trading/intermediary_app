@@ -13,9 +13,22 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# XTB Credentials (consider using environment variables in production)
+# XTB Credentials
 XTB_USER_ID = os.environ.get('XTB_USER_ID', "17190137")
 XTB_PASSWORD = os.environ.get('XTB_PASSWORD', "K193652744T")
+
+# Symbol mapping between TradingView and XTB
+SYMBOL_MAPPING = {
+    "BTCUSD": "BITCOIN",
+    "EURUSD": "EURUSD",
+    "US500": "US500",
+    "SPX500": "US500",
+    "SP500": "US500"
+}
+
+def convert_symbol(tv_symbol: str) -> str:
+    """Convert TradingView symbol to XTB symbol"""
+    return SYMBOL_MAPPING.get(tv_symbol, tv_symbol)
 
 class XTBSession:
     def __init__(self):
@@ -83,6 +96,17 @@ class XTBSession:
             logger.error(f"Trade execution error: {e}")
             return {"error": str(e)}
 
+    def check_connection(self):
+        """Check if connection is still valid"""
+        try:
+            if not self.client:
+                return False
+            # Try a simple command to check connection
+            response = self.client.commandExecute('ping')
+            return response.get('status', False)
+        except:
+            return False
+
 # Initialize XTB session
 xtb_session = XTBSession()
 
@@ -101,11 +125,20 @@ def webhook():
         if action not in ["buy", "sell"]:
             return jsonify({"error": "Invalid action"}), 400
 
-        # Attempt to place trade
+        try:
+            volume = float(data["volume"])
+            if volume <= 0:
+                return jsonify({"error": "Volume must be positive"}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid volume format"}), 400
+
+        # Convert symbol and attempt to place trade
+        symbol = convert_symbol(data["symbol"])
+        
         result = xtb_session.place_trade(
-            symbol=data["symbol"],
+            symbol=symbol,
             action=action,
-            volume=float(data["volume"])
+            volume=volume
         )
         
         # Handle trade result
@@ -129,11 +162,17 @@ def test_connection():
         logger.error(f"Connection test error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/ping")
+def ping():
+    """Check if we still have a valid connection"""
+    return jsonify({
+        "connected": xtb_session.check_connection()
+    })
+
 @app.route("/")
 def index():
     return "XTB TradingView Webhook Listener is running!"
 
 if __name__ == "__main__":
-    # Use PORT environment variable or default to 5000
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
