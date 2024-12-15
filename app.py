@@ -64,12 +64,42 @@ class XTBSession:
             logger.error(f"Detailed Traceback: {traceback.format_exc()}")
             return False
 
+    def get_symbol_price(self, symbol: str):
+        """Get current market price for a symbol"""
+        try:
+            symbol_response = self.client.commandExecute("getSymbol", {
+                "symbol": symbol
+            })
+            logger.info(f"Symbol info response: {symbol_response}")
+            
+            if not symbol_response.get("status"):
+                return None
+                
+            return symbol_response["returnData"]
+            
+        except Exception as e:
+            logger.error(f"Error getting symbol price: {e}")
+            return None
+
     def place_trade(self, symbol: str, action: str, volume: float):
         try:
             # Authenticate if not already authenticated
             if not self.client:
                 if not self.authenticate():
                     return {"error": "Failed to authenticate"}
+
+            # Get current market prices
+            symbol_info = self.get_symbol_price(symbol)
+            if not symbol_info:
+                return {"error": "Failed to get symbol price"}
+            
+            # Select appropriate price based on action
+            if action.lower() == "buy":
+                price = symbol_info.get("ask", 0)
+            else:
+                price = symbol_info.get("bid", 0)
+
+            logger.info(f"Using price {price} for {action} order")
 
             # Determine transaction side
             cmd = TransactionSide.BUY if action.lower() == "buy" else TransactionSide.SELL
@@ -79,8 +109,10 @@ class XTBSession:
                 "symbol": symbol,
                 "volume": volume,
                 "type": TransactionType.ORDER_OPEN,
-                "price": 0.0  # Market order
+                "price": price
             }
+
+            logger.info(f"Placing trade with info: {transaction_info}")
 
             response = self.client.execute({
                 "command": "tradeTransaction",
@@ -101,7 +133,6 @@ class XTBSession:
         try:
             if not self.client:
                 return False
-            # Try a simple command to check connection
             response = self.client.commandExecute('ping')
             return response.get('status', False)
         except:
@@ -161,6 +192,18 @@ def test_connection():
     except Exception as e:
         logger.error(f"Connection test error: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route("/check-price")
+def check_price():
+    """Endpoint to check current price for a symbol"""
+    symbol = request.args.get('symbol', 'BITCOIN')
+    if not xtb_session.client:
+        if not xtb_session.authenticate():
+            return jsonify({"error": "Failed to authenticate"}), 500
+    
+    symbol = convert_symbol(symbol)
+    price_info = xtb_session.get_symbol_price(symbol)
+    return jsonify(price_info)
 
 @app.route("/ping")
 def ping():
