@@ -16,8 +16,8 @@ app = Flask(__name__)
 
 # XTB API Configuration
 XTB_DEMO_URL = "https://ws.xtb.com/demo"
-XTB_USER_ID = "17190137"  # Replace with your XTB demo account number
-XTB_PASSWORD = "K193652744T"  # Replace with your XTB password
+XTB_USER_ID = "17190137"
+XTB_PASSWORD = "K193652744T"
 
 # Symbol mapping between TradingView and XTB
 SYMBOL_MAPPING = {
@@ -32,7 +32,7 @@ class XTBSession:
     def __init__(self):
         self.session_id = None
         self.last_auth_time = None
-    
+
     def authenticate(self):
         """Authenticate with XTB API"""
         payload = {
@@ -41,21 +41,19 @@ class XTBSession:
                 "userId": XTB_USER_ID,
                 "password": XTB_PASSWORD,
                 "appName": "Python Trading Bot"
-            },
-            "customTag": "login_request"
+            }
         }
 
         headers = {
-            "Content-Type": "application/json",
+            "Content-Type": "application/json"
         }
 
         try:
-            # Using the base URL without /login
             response = requests.post(
-                XTB_DEMO_URL,
+                XTB_DEMO_URL,  # Using base URL without /login
                 json=payload,
                 headers=headers,
-                timeout=30  # Increased timeout
+                timeout=30
             )
             logger.info(f"Auth Response Status: {response.status_code}")
             logger.info(f"Auth Response: {response.text}")
@@ -100,13 +98,11 @@ class XTBSession:
                     "type": 0,
                     "volume": volume
                 }
-            },
-            "customTag": "trade_request"
+            }
         }
 
         headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.session_id}"
+            "Content-Type": "application/json"
         }
 
         try:
