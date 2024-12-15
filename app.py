@@ -16,8 +16,8 @@ app = Flask(__name__)
 
 # XTB API Configuration
 XTB_DEMO_URL = "https://ws.xtb.com/demo"
-XTB_USER_ID = "17190137"
-XTB_PASSWORD = "K193652744T"
+XTB_USER_ID = "17190137"  # Replace with your XTB demo account number
+XTB_PASSWORD = "K193652744T"  # Replace with your XTB password
 
 # Symbol mapping between TradingView and XTB
 SYMBOL_MAPPING = {
@@ -28,15 +28,11 @@ SYMBOL_MAPPING = {
     "SP500": "US500"
 }
 
-def convert_symbol(tv_symbol: str) -> str:
-    """Convert TradingView symbol to XTB symbol"""
-    return SYMBOL_MAPPING.get(tv_symbol, tv_symbol)
-
 class XTBSession:
     def __init__(self):
         self.session_id = None
         self.last_auth_time = None
-
+    
     def authenticate(self):
         """Authenticate with XTB API"""
         payload = {
@@ -45,20 +41,23 @@ class XTBSession:
                 "userId": XTB_USER_ID,
                 "password": XTB_PASSWORD,
                 "appName": "Python Trading Bot"
-            }
+            },
+            "customTag": "login_request"
         }
 
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         try:
+            # Using the base URL without /login
             response = requests.post(
-                f"{XTB_DEMO_URL}/login",
+                XTB_DEMO_URL,
                 json=payload,
                 headers=headers,
-                timeout=10
+                timeout=30  # Increased timeout
             )
+            logger.info(f"Auth Response Status: {response.status_code}")
             logger.info(f"Auth Response: {response.text}")
 
             if response.status_code == 200:
@@ -69,7 +68,7 @@ class XTBSession:
                     logger.info("Successfully authenticated with XTB")
                     return True
                 else:
-                    logger.error(f"Authentication failed: {response_data.get('errorDesc', 'Unknown error')}")
+                    logger.error(f"Authentication failed: {response_data}")
             else:
                 logger.error(f"HTTP {response.status_code}: {response.text}")
             return False
@@ -101,7 +100,8 @@ class XTBSession:
                     "type": 0,
                     "volume": volume
                 }
-            }
+            },
+            "customTag": "trade_request"
         }
 
         headers = {
@@ -111,16 +111,18 @@ class XTBSession:
 
         try:
             response = requests.post(
-                f"{XTB_DEMO_URL}/trade",
+                XTB_DEMO_URL,  # Using base URL without /trade
                 json=transaction,
                 headers=headers,
-                timeout=10
+                timeout=30
             )
+            logger.info(f"Trade Response Status: {response.status_code}")
             logger.info(f"Trade Response: {response.text}")
 
             if response.status_code == 200:
                 response_data = response.json()
                 if response_data.get("status"):
+                    logger.info(f"Successfully placed {action} order for {volume} {symbol}")
                     return {"success": True, "data": response_data}
                 return {"error": response_data.get("errorDesc", "Unknown error")}
             return {"error": f"HTTP {response.status_code}: {response.text}"}
@@ -128,6 +130,10 @@ class XTBSession:
         except Exception as e:
             logger.error(f"Trade error: {str(e)}")
             return {"error": str(e)}
+
+def convert_symbol(tv_symbol: str) -> str:
+    """Convert TradingView symbol to XTB symbol"""
+    return SYMBOL_MAPPING.get(tv_symbol, tv_symbol)
 
 # Initialize XTB session
 xtb_session = XTBSession()
