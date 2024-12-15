@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # XTB API Credentials (set these as environment variables)
-XTB_API_URL = os.getenv("XTB_API_URL", "https://xapi.xtb.com/demo")  # Default to demo API
+XTB_API_URL = os.getenv("XTB_API_URL", "https://ws.xtb.com/demo")  # Default to demo API
 XTB_USER_ID = os.getenv("17190137")  # XTB user ID (set this in environment variables)
 XTB_PASSWORD = os.getenv("K193652744T")  # XTB password (set this in environment variables)
 
