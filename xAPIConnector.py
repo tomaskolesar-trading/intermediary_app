@@ -48,14 +48,23 @@ class TransactionType(object):
     ORDER_DELETE = 4
 
 class JsonSocket(object):
-    def __init__(self, address, port, encrypt = False):
+    def __init__(self, address, port, encrypt=False):
         self._ssl = encrypt 
         if self._ssl != True:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         else:
+            # Create SSL context and wrap socket
             context = ssl.create_default_context()
+            # Disable certificate verification for testing (remove in production)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+            # Create base socket
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            
+            # Wrap the socket with SSL
             self.socket = context.wrap_socket(sock, server_hostname=address)
+        
         self.conn = self.socket
         self._timeout = None
         self._address = address
@@ -66,13 +75,13 @@ class JsonSocket(object):
     def connect(self):
         for i in range(API_MAX_CONN_TRIES):
             try:
-                self.socket.connect( (self.address, self.port) )
+                self.socket.connect((self._address, self._port))
+                logger.info("Socket connected")
+                return True
             except socket.error as msg:
-                logger.error("SockThread Error: %s" % msg)
-                time.sleep(0.25);
+                logger.error(f"SockThread Error: {msg}")
+                time.sleep(0.25)
                 continue
-            logger.info("Socket connected")
-            return True
         return False
 
     def _sendObj(self, obj):
@@ -85,7 +94,7 @@ class JsonSocket(object):
             msg = msg.encode('utf-8')
             while sent < len(msg):
                 sent += self.conn.send(msg[sent:])
-                logger.info('Sent: ' + str(msg))
+                logger.info(f'Sent: {msg}')
                 time.sleep(API_SEND_TIMEOUT/1000)
 
     def _read(self, bytesSize=4096):
@@ -102,9 +111,9 @@ class JsonSocket(object):
                 elif size < len(self._receivedData):
                     self._receivedData = self._receivedData[size:].strip()
                     break
-            except ValueError as e:
+            except ValueError:
                 continue
-        logger.info('Received: ' + str(resp))
+        logger.info(f'Received: {resp}')
         return resp
 
     def _readObj(self):
@@ -157,8 +166,8 @@ class JsonSocket(object):
 class APIClient(JsonSocket):
     def __init__(self, address=DEFAULT_XAPI_ADDRESS, port=DEFAULT_XAPI_PORT, encrypt=True):
         super(APIClient, self).__init__(address, port, encrypt)
-        if(not self.connect()):
-            raise Exception("Cannot connect to " + address + ":" + str(port) + " after " + str(API_MAX_CONN_TRIES) + " retries")
+        if not self.connect():
+            raise Exception(f"Cannot connect to {address}:{port} after {API_MAX_CONN_TRIES} retries")
 
     def execute(self, dictionary):
         self._sendObj(dictionary)
@@ -167,11 +176,11 @@ class APIClient(JsonSocket):
     def disconnect(self):
         self.close()
         
-    def commandExecute(self,commandName, arguments=None):
+    def commandExecute(self, commandName, arguments=None):
         return self.execute(baseCommand(commandName, arguments))
 
 def baseCommand(commandName, arguments=None):
-    if arguments==None:
+    if arguments is None:
         arguments = dict()
     return dict([('command', commandName), ('arguments', arguments)])
 
