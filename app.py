@@ -24,20 +24,30 @@ class XTBSession:
         self.stream_session_id = None
 
     def authenticate(self):
-        try:
-            self.client = APIClient()
-            login_response = self.client.execute(
-                loginCommand(userId=XTB_USER_ID, password=XTB_PASSWORD, appName="Python Trading Bot")
-            )
-            logger.info(f"Login response: {login_response}")
-            
-            if login_response['status'] == True:
-                self.stream_session_id = login_response['streamSessionId']
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Authentication error: {e}")
-            return False
+    try:
+        logger.info("Starting authentication process...")
+        logger.info(f"Connecting to {DEFAULT_XAPI_ADDRESS}:{DEFAULT_XAPI_PORT}")
+        
+        self.client = APIClient()
+        logger.info("APIClient created successfully")
+        
+        login_response = self.client.execute(
+            loginCommand(userId=XTB_USER_ID, password=XTB_PASSWORD, appName="Python Trading Bot")
+        )
+        logger.info(f"Raw login response: {login_response}")
+        
+        if login_response['status'] == True:
+            self.stream_session_id = login_response['streamSessionId']
+            logger.info("Authentication successful")
+            return True
+        logger.error(f"Authentication failed with response: {login_response}")
+        return False
+    except Exception as e:
+        logger.error(f"Detailed authentication error: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
 
     def place_trade(self, symbol: str, action: str, volume: float):
         if not self.client:
