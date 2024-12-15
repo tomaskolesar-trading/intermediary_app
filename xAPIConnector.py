@@ -49,18 +49,19 @@ class TransactionType(object):
 
 class JsonSocket(object):
     def __init__(self, address, port, encrypt = False):
-        self._ssl = encrypt 
-        if self._ssl != True:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        else:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket = ssl.wrap_socket(sock)
-        self.conn = self.socket
-        self._timeout = None
-        self._address = address
-        self._port = port
-        self._decoder = json.JSONDecoder()
-        self._receivedData = ''
+    self._ssl = encrypt 
+    if self._ssl != True:
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    else:
+        context = ssl.create_default_context()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket = context.wrap_socket(sock, server_hostname=address)
+    self.conn = self.socket
+    self._timeout = None
+    self._address = address
+    self._port = port
+    self._decoder = json.JSONDecoder()
+    self._receivedData = ''
 
     def connect(self):
         for i in range(API_MAX_CONN_TRIES):
