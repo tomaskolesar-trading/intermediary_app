@@ -45,12 +45,16 @@ class XTBSession:
         }
 
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": "Python Trading Bot",
+            "Accept": "application/json",
+            "Connection": "keep-alive"
         }
 
         try:
+            logger.info("Attempting XTB authentication...")
             response = requests.post(
-                XTB_DEMO_URL,  # Using base URL without /login
+                XTB_DEMO_URL,
                 json=payload,
                 headers=headers,
                 timeout=30
@@ -102,12 +106,15 @@ class XTBSession:
         }
 
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": "Python Trading Bot",
+            "Accept": "application/json",
+            "Connection": "keep-alive"
         }
 
         try:
             response = requests.post(
-                XTB_DEMO_URL,  # Using base URL without /trade
+                XTB_DEMO_URL,
                 json=transaction,
                 headers=headers,
                 timeout=30
@@ -133,6 +140,47 @@ def convert_symbol(tv_symbol: str) -> str:
 
 # Initialize XTB session
 xtb_session = XTBSession()
+
+@app.route("/test-xtb", methods=["GET"])
+def test_xtb():
+    try:
+        # First, get our IP
+        r = requests.get('https://api.ipify.org')
+        our_ip = r.text
+        logger.info(f"Testing from IP: {our_ip}")
+        
+        # Try XTB connection
+        payload = {
+            "command": "login",
+            "arguments": {
+                "userId": XTB_USER_ID,
+                "password": XTB_PASSWORD,
+                "appName": "Python Trading Bot"
+            }
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Python Trading Bot",
+            "Accept": "application/json",
+            "Connection": "keep-alive"
+        }
+        
+        response = requests.post(
+            XTB_DEMO_URL,
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
+        
+        return jsonify({
+            "heroku_ip": our_ip,
+            "xtb_status": response.status_code,
+            "xtb_response": response.text
+        })
+    except Exception as e:
+        logger.error(f"Test endpoint error: {str(e)}")
+        return jsonify({"error": str(e)})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
