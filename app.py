@@ -98,9 +98,9 @@ class XTBSession:
                 return {"error": f"No open position found for {symbol}", "status": False}
 
             transaction_info = {
-                "cmd": 0,  # Close command
+                "cmd": 1 if position["cmd"] == 0 else 0,  # Use opposite command
                 "symbol": symbol,
-                "position": position["order"],  # Use the position ID
+                "position": position["order"],
                 "volume": position["volume"],
                 "type": TransactionType.ORDER_CLOSE
             }
