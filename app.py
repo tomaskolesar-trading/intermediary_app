@@ -79,9 +79,11 @@ class XTBSession:
                     if not trade["closed"]:  # Only store open positions
                         self.open_positions[trade["symbol"]] = {
                             "cmd": trade["cmd"],
-                            "order": trade["position"],  # Use position instead of order
+                            "position": trade["position"],
+                            "order": trade["order"],
                             "volume": trade["volume"],
-                            "symbol": trade["symbol"]
+                            "symbol": trade["symbol"],
+                            "open_price": trade.get("open_price", 0)
                         }
                 logger.info(f"Updated open positions: {self.open_positions}")
                 return trades
@@ -98,11 +100,17 @@ class XTBSession:
                 return {"error": f"No open position found for {symbol}", "status": False}
 
             transaction_info = {
-                "cmd": 1 if position["cmd"] == 0 else 0,  # Use opposite command
+                "cmd": 0,  # Use 0 for market close
                 "symbol": symbol,
-                "position": position["order"],
-                "volume": position["volume"],
-                "type": TransactionType.ORDER_CLOSE
+                "price": 0.0,  # Market price
+                "order": int(position["order"]),
+                "position": int(position["position"]),
+                "volume": float(position["volume"]),
+                "offset": 0,
+                "sl": 0.0,
+                "tp": 0.0,
+                "type": 2,  # ORDER_CLOSE
+                "customComment": "TV Close Signal"
             }
 
             logger.info(f"Closing position with info: {transaction_info}")
@@ -113,12 +121,11 @@ class XTBSession:
                     "tradeTransInfo": transaction_info
                 }
             })
-            
-            logger.info(f"Close position response: {response}")
 
+            logger.info(f"Close position response: {response}")
+            
             if response.get("status"):
                 self.update_positions()
-            
             return response
 
         except Exception as e:
@@ -177,11 +184,14 @@ class XTBSession:
 
                 # Place new buy order
                 transaction_info = {
-                    "cmd": TransactionSide.BUY,
+                    "cmd": 0,  # BUY
                     "symbol": symbol,
-                    "volume": volume,
-                    "type": TransactionType.ORDER_OPEN,
-                    "price": price
+                    "volume": float(volume),
+                    "type": 0,  # ORDER_OPEN
+                    "price": price,
+                    "sl": 0.0,
+                    "tp": 0.0,
+                    "customComment": "TV Signal"
                 }
 
                 logger.info(f"Placing buy order with info: {transaction_info}")
