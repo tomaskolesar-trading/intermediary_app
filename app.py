@@ -3,6 +3,7 @@ import json
 import logging
 from flask import Flask, request, jsonify
 from xAPIConnector import *
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -35,6 +36,7 @@ class XTBSession:
         self.client = None
         self.stream_client = None
         self.stream_session_id = None
+        self.open_positions = {}  # Dictionary to track open positions by symbol
 
     def authenticate(self):
         try:
@@ -52,6 +54,8 @@ class XTBSession:
             if login_response.get('status', False):
                 self.stream_session_id = login_response.get('streamSessionId')
                 logger.info("Authentication successful")
+                # Get current positions after successful authentication
+                self.update_positions()
                 return True
             
             logger.error(f"Authentication failed with response: {login_response}")
@@ -63,6 +67,21 @@ class XTBSession:
             import traceback
             logger.error(f"Detailed Traceback: {traceback.format_exc()}")
             return False
+
+    def update_positions(self):
+        """Update the current open positions"""
+        try:
+            trades = self.client.commandExecute("getTrades", {
+                "openedOnly": True
+            })
+            if trades.get("status"):
+                self.open_positions = {
+                    trade["symbol"]: trade 
+                    for trade in trades["returnData"]
+                }
+                logger.info(f"Updated open positions: {self.open_positions}")
+        except Exception as e:
+            logger.error(f"Error updating positions: {e}")
 
     def get_symbol_price(self, symbol: str):
         """Get current market price for a symbol"""
@@ -81,38 +100,20 @@ class XTBSession:
             logger.error(f"Error getting symbol price: {e}")
             return None
 
-    def place_trade(self, symbol: str, action: str, volume: float):
+    def close_position(self, symbol: str):
+        """Close position for given symbol"""
         try:
-            # Authenticate if not already authenticated
-            if not self.client:
-                if not self.authenticate():
-                    return {"error": "Failed to authenticate"}
+            position = self.open_positions.get(symbol)
+            if not position:
+                return {"error": f"No open position found for {symbol}"}
 
-            # Get current market prices
-            symbol_info = self.get_symbol_price(symbol)
-            if not symbol_info:
-                return {"error": "Failed to get symbol price"}
-            
-            # Select appropriate price based on action
-            if action.lower() == "buy":
-                price = symbol_info.get("ask", 0)
-            else:
-                price = symbol_info.get("bid", 0)
-
-            logger.info(f"Using price {price} for {action} order")
-
-            # Determine transaction side
-            cmd = TransactionSide.BUY if action.lower() == "buy" else TransactionSide.SELL
-            
             transaction_info = {
-                "cmd": cmd,
+                "cmd": TransactionType.ORDER_CLOSE,
                 "symbol": symbol,
-                "volume": volume,
-                "type": TransactionType.ORDER_OPEN,
-                "price": price
+                "order": position["order"],
+                "price": position["close_price"],
+                "type": TransactionType.ORDER_CLOSE
             }
-
-            logger.info(f"Placing trade with info: {transaction_info}")
 
             response = self.client.execute({
                 "command": "tradeTransaction",
@@ -121,8 +122,71 @@ class XTBSession:
                 }
             })
             
-            logger.info(f"Trade response: {response}")
+            if response.get("status"):
+                self.update_positions()  # Update positions after successful close
+                
+            logger.info(f"Close position response: {response}")
             return response
+
+        except Exception as e:
+            logger.error(f"Error closing position: {e}")
+            return {"error": str(e)}
+
+    def place_trade(self, symbol: str, action: str, volume: float):
+        try:
+            # Authenticate if not already authenticated
+            if not self.client:
+                if not self.authenticate():
+                    return {"error": "Failed to authenticate"}
+
+            # Update current positions
+            self.update_positions()
+
+            # Handle sell action - close position if exists
+            if action.lower() == "sell":
+                if symbol in self.open_positions:
+                    logger.info(f"Closing existing position for {symbol}")
+                    return self.close_position(symbol)
+                else:
+                    logger.info(f"No position to close for {symbol}")
+                    return {"error": "No open position to close"}
+
+            # Handle buy action
+            if action.lower() == "buy":
+                # Check if position already exists
+                if symbol in self.open_positions:
+                    return {"error": f"Position already exists for {symbol}"}
+
+                # Get current market prices
+                symbol_info = self.get_symbol_price(symbol)
+                if not symbol_info:
+                    return {"error": "Failed to get symbol price"}
+                
+                price = symbol_info.get("ask", 0)
+                logger.info(f"Using price {price} for buy order")
+
+                transaction_info = {
+                    "cmd": TransactionSide.BUY,
+                    "symbol": symbol,
+                    "volume": volume,
+                    "type": TransactionType.ORDER_OPEN,
+                    "price": price
+                }
+
+                logger.info(f"Placing buy order with info: {transaction_info}")
+
+                response = self.client.execute({
+                    "command": "tradeTransaction",
+                    "arguments": {
+                        "tradeTransInfo": transaction_info
+                    }
+                })
+                
+                if response.get("status"):
+                    self.update_positions()  # Update positions after successful order
+                
+                logger.info(f"Buy order response: {response}")
+                return response
             
         except Exception as e:
             logger.error(f"Trade execution error: {e}")
@@ -180,6 +244,16 @@ def webhook():
     except Exception as e:
         logger.error(f"Webhook processing error: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route("/positions")
+def get_positions():
+    """Endpoint to check current open positions"""
+    if not xtb_session.client:
+        if not xtb_session.authenticate():
+            return jsonify({"error": "Failed to authenticate"}), 500
+    
+    xtb_session.update_positions()
+    return jsonify(xtb_session.open_positions)
 
 @app.route("/test-connection")
 def test_connection():
