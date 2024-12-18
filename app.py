@@ -1,3 +1,4 @@
+```python
 import os
 import json
 import logging
@@ -74,12 +75,19 @@ class XTBSession:
                 "openedOnly": True
             })
             if trades.get("status"):
-                self.open_positions = {
-                    trade["symbol"]: trade 
-                    for trade in trades["returnData"]
-                }
+                # Store positions by symbol
+                self.open_positions = {}
+                for trade in trades["returnData"]:
+                    if not trade["closed"]:  # Only store open positions
+                        self.open_positions[trade["symbol"]] = {
+                            "cmd": trade["cmd"],
+                            "order": trade["position"],  # Use position instead of order
+                            "volume": trade["volume"],
+                            "symbol": trade["symbol"]
+                        }
                 logger.info(f"Updated open positions: {self.open_positions}")
-            return trades
+                return trades
+            return {"status": False, "error": "Failed to get trades"}
         except Exception as e:
             logger.error(f"Error updating positions: {e}")
             return {"status": False, "error": str(e)}
@@ -91,19 +99,12 @@ class XTBSession:
             if not position:
                 return {"error": f"No open position found for {symbol}", "status": False}
 
-            # Get symbol info for closing
-            symbol_info = self.get_symbol_price(symbol)
-            if not symbol_info:
-                return {"error": "Failed to get symbol price for closing", "status": False}
-
-            # Prepare closing transaction
             transaction_info = {
-                "cmd": position["cmd"],
+                "cmd": 0,  # Close command
                 "symbol": symbol,
-                "order": position["order"],
+                "position": position["order"],  # Use the position ID
                 "volume": position["volume"],
-                "type": TransactionType.ORDER_CLOSE,
-                "price": 0.0  # Market price
+                "type": TransactionType.ORDER_CLOSE
             }
 
             logger.info(f"Closing position with info: {transaction_info}")
@@ -268,3 +269,4 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+```
