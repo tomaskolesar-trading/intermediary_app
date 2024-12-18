@@ -81,9 +81,7 @@ class XTBSession:
                             "cmd": trade["cmd"],
                             "position": trade["position"],
                             "order": trade["order"],
-                            "volume": trade["volume"],
-                            "symbol": trade["symbol"],
-                            "open_price": trade.get("open_price", 0)
+                            "volume": trade["volume"]
                         }
                 logger.info(f"Updated open positions: {self.open_positions}")
                 return trades
@@ -99,18 +97,14 @@ class XTBSession:
             if not position:
                 return {"error": f"No open position found for {symbol}", "status": False}
 
+            # Simplified transaction info for closing
             transaction_info = {
-                "cmd": 0,  # Use 0 for market close
+                "cmd": 2,  # Command for closing position
                 "symbol": symbol,
-                "price": 0.0,  # Market price
-                "order": int(position["order"]),
                 "position": int(position["position"]),
                 "volume": float(position["volume"]),
-                "offset": 0,
-                "sl": 0.0,
-                "tp": 0.0,
                 "type": 2,  # ORDER_CLOSE
-                "customComment": "TV Close Signal"
+                "price": 0.0  # Market price
             }
 
             logger.info(f"Closing position with info: {transaction_info}")
@@ -188,10 +182,7 @@ class XTBSession:
                     "symbol": symbol,
                     "volume": float(volume),
                     "type": 0,  # ORDER_OPEN
-                    "price": price,
-                    "sl": 0.0,
-                    "tp": 0.0,
-                    "customComment": "TV Signal"
+                    "price": price
                 }
 
                 logger.info(f"Placing buy order with info: {transaction_info}")
