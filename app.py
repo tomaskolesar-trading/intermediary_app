@@ -91,40 +91,36 @@ class XTBSession:
             return {"status": False, "error": str(e)}
 
     def close_position(self, symbol: str):
-        """Close position for given symbol"""
-        try:
-            position = self.open_positions.get(symbol)
-            if not position:
-                return {"error": f"No open position found for {symbol}", "status": False}
+    """Close position for given symbol"""
+    try:
+        position = self.open_positions.get(symbol)
+        if not position:
+            return {"error": f"No open position found for {symbol}", "status": False}
 
-            # Simplified transaction info for closing
-            transaction_info = {
-                "cmd": 2,  # Command for closing position
-                "symbol": symbol,
-                "position": int(position["position"]),
-                "volume": float(position["volume"]),
-                "type": 2,  # ORDER_CLOSE
-                "price": 0.0  # Market price
+        transaction_info = {
+            "cmd": 1,  # SELL to close a BUY position
+            "symbol": symbol,
+            "volume": float(position["volume"]),
+            "price": 0.0,
+            "type": 2,  # ORDER_CLOSE
+            "order": int(position["order"])  # Reference to original order
+        }
+
+        logger.info(f"Closing position with info: {transaction_info}")
+
+        response = self.client.execute({
+            "command": "tradeTransaction",
+            "arguments": {
+                "tradeTransInfo": transaction_info
             }
+        })
 
-            logger.info(f"Closing position with info: {transaction_info}")
+        logger.info(f"Close position response: {response}")
+        return response
 
-            response = self.client.execute({
-                "command": "tradeTransaction",
-                "arguments": {
-                    "tradeTransInfo": transaction_info
-                }
-            })
-
-            logger.info(f"Close position response: {response}")
-            
-            if response.get("status"):
-                self.update_positions()
-            return response
-
-        except Exception as e:
-            logger.error(f"Error closing position: {e}")
-            return {"error": str(e), "status": False}
+    except Exception as e:
+        logger.error(f"Error closing position: {e}")
+        return {"error": str(e), "status": False}
 
     def get_symbol_price(self, symbol: str):
         """Get current market price for a symbol"""
