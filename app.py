@@ -1,10 +1,8 @@
-```python
 import os
 import json
 import logging
 from flask import Flask, request, jsonify
 from xAPIConnector import *
-from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -269,4 +267,3 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-```
