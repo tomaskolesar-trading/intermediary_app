@@ -36,7 +36,7 @@ class XTBSession:
         self.client = None
         self.stream_client = None
         self.stream_session_id = None
-        self.open_positions = {}  # Dictionary to track open positions by symbol
+        self.open_positions = {}
 
     def authenticate(self):
         try:
@@ -54,7 +54,6 @@ class XTBSession:
             if login_response.get('status', False):
                 self.stream_session_id = login_response.get('streamSessionId')
                 logger.info("Authentication successful")
-                # Get current positions after successful authentication
                 self.update_positions()
                 return True
             
@@ -80,8 +79,52 @@ class XTBSession:
                     for trade in trades["returnData"]
                 }
                 logger.info(f"Updated open positions: {self.open_positions}")
+            return trades
         except Exception as e:
             logger.error(f"Error updating positions: {e}")
+            return {"status": False, "error": str(e)}
+
+    def close_position(self, symbol: str):
+        """Close position for given symbol"""
+        try:
+            position = self.open_positions.get(symbol)
+            if not position:
+                return {"error": f"No open position found for {symbol}", "status": False}
+
+            # Get symbol info for closing
+            symbol_info = self.get_symbol_price(symbol)
+            if not symbol_info:
+                return {"error": "Failed to get symbol price for closing", "status": False}
+
+            # Prepare closing transaction
+            transaction_info = {
+                "cmd": position["cmd"],
+                "symbol": symbol,
+                "order": position["order"],
+                "volume": position["volume"],
+                "type": TransactionType.ORDER_CLOSE,
+                "price": 0.0  # Market price
+            }
+
+            logger.info(f"Closing position with info: {transaction_info}")
+
+            response = self.client.execute({
+                "command": "tradeTransaction",
+                "arguments": {
+                    "tradeTransInfo": transaction_info
+                }
+            })
+            
+            logger.info(f"Close position response: {response}")
+
+            if response.get("status"):
+                self.update_positions()
+            
+            return response
+
+        except Exception as e:
+            logger.error(f"Error closing position: {e}")
+            return {"error": str(e), "status": False}
 
     def get_symbol_price(self, symbol: str):
         """Get current market price for a symbol"""
@@ -100,38 +143,6 @@ class XTBSession:
             logger.error(f"Error getting symbol price: {e}")
             return None
 
-    def close_position(self, symbol: str):
-        """Close position for given symbol"""
-        try:
-            position = self.open_positions.get(symbol)
-            if not position:
-                return {"error": f"No open position found for {symbol}"}
-
-            transaction_info = {
-                "cmd": TransactionType.ORDER_CLOSE,
-                "symbol": symbol,
-                "order": position["order"],
-                "price": position["close_price"],
-                "type": TransactionType.ORDER_CLOSE
-            }
-
-            response = self.client.execute({
-                "command": "tradeTransaction",
-                "arguments": {
-                    "tradeTransInfo": transaction_info
-                }
-            })
-            
-            if response.get("status"):
-                self.update_positions()  # Update positions after successful close
-                
-            logger.info(f"Close position response: {response}")
-            return response
-
-        except Exception as e:
-            logger.error(f"Error closing position: {e}")
-            return {"error": str(e)}
-
     def place_trade(self, symbol: str, action: str, volume: float):
         try:
             # Authenticate if not already authenticated
@@ -139,7 +150,7 @@ class XTBSession:
                 if not self.authenticate():
                     return {"error": "Failed to authenticate"}
 
-            # Update current positions
+            # Update positions
             self.update_positions()
 
             # Handle sell action - close position if exists
@@ -149,22 +160,23 @@ class XTBSession:
                     return self.close_position(symbol)
                 else:
                     logger.info(f"No position to close for {symbol}")
-                    return {"error": "No open position to close"}
+                    return {"error": "No open position to close", "status": False}
 
             # Handle buy action
             if action.lower() == "buy":
                 # Check if position already exists
                 if symbol in self.open_positions:
-                    return {"error": f"Position already exists for {symbol}"}
+                    return {"error": f"Position already exists for {symbol}", "status": False}
 
-                # Get current market prices
+                # Get current market price
                 symbol_info = self.get_symbol_price(symbol)
                 if not symbol_info:
-                    return {"error": "Failed to get symbol price"}
+                    return {"error": "Failed to get symbol price", "status": False}
                 
                 price = symbol_info.get("ask", 0)
                 logger.info(f"Using price {price} for buy order")
 
+                # Place new buy order
                 transaction_info = {
                     "cmd": TransactionSide.BUY,
                     "symbol": symbol,
@@ -183,24 +195,14 @@ class XTBSession:
                 })
                 
                 if response.get("status"):
-                    self.update_positions()  # Update positions after successful order
+                    self.update_positions()
                 
                 logger.info(f"Buy order response: {response}")
                 return response
             
         except Exception as e:
             logger.error(f"Trade execution error: {e}")
-            return {"error": str(e)}
-
-    def check_connection(self):
-        """Check if connection is still valid"""
-        try:
-            if not self.client:
-                return False
-            response = self.client.commandExecute('ping')
-            return response.get('status', False)
-        except:
-            return False
+            return {"error": str(e), "status": False}
 
 # Initialize XTB session
 xtb_session = XTBSession()
@@ -211,7 +213,6 @@ def webhook():
         data = request.json
         logger.info(f"Received webhook: {data}")
 
-        # Validate incoming webhook data
         required_fields = ["action", "symbol", "volume"]
         if not all(key in data for key in required_fields):
             return jsonify({"error": "Missing required fields"}), 400
@@ -227,17 +228,10 @@ def webhook():
         except ValueError:
             return jsonify({"error": "Invalid volume format"}), 400
 
-        # Convert symbol and attempt to place trade
         symbol = convert_symbol(data["symbol"])
+        result = xtb_session.place_trade(symbol=symbol, action=action, volume=volume)
         
-        result = xtb_session.place_trade(
-            symbol=symbol,
-            action=action,
-            volume=volume
-        )
-        
-        # Handle trade result
-        if "error" in result:
+        if not result.get("status", False):
             return jsonify(result), 400
         return jsonify(result)
 
@@ -252,8 +246,8 @@ def get_positions():
         if not xtb_session.authenticate():
             return jsonify({"error": "Failed to authenticate"}), 500
     
-    xtb_session.update_positions()
-    return jsonify(xtb_session.open_positions)
+    positions = xtb_session.update_positions()
+    return jsonify(positions)
 
 @app.route("/test-connection")
 def test_connection():
@@ -261,30 +255,11 @@ def test_connection():
         result = xtb_session.authenticate()
         return jsonify({
             "connected": result,
-            "session_id": xtb_session.stream_session_id or "No session"
+            "session_id": xtb_session.stream_session_id
         })
     except Exception as e:
         logger.error(f"Connection test error: {e}")
         return jsonify({"error": str(e)}), 500
-
-@app.route("/check-price")
-def check_price():
-    """Endpoint to check current price for a symbol"""
-    symbol = request.args.get('symbol', 'BITCOIN')
-    if not xtb_session.client:
-        if not xtb_session.authenticate():
-            return jsonify({"error": "Failed to authenticate"}), 500
-    
-    symbol = convert_symbol(symbol)
-    price_info = xtb_session.get_symbol_price(symbol)
-    return jsonify(price_info)
-
-@app.route("/ping")
-def ping():
-    """Check if we still have a valid connection"""
-    return jsonify({
-        "connected": xtb_session.check_connection()
-    })
 
 @app.route("/")
 def index():
