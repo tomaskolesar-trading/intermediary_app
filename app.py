@@ -97,13 +97,19 @@ class XTBSession:
             if not position:
                 return {"error": f"No open position found for {symbol}", "status": False}
 
+            # Use a different format for closing
             transaction_info = {
-                "cmd": 1,  # SELL to close a BUY position
+                "cmd": 0,  # Original command
                 "symbol": symbol,
                 "volume": float(position["volume"]),
-                "price": 0.0,
-                "type": 2,  # ORDER_CLOSE
-                "order": int(position["order"])  # Reference to original order
+                "position": int(position["position"]),  # Use position ID
+                "tp": 0.0,
+                "sl": 0.0,
+                "type": TransactionType.ORDER_CLOSE,
+                "offset": 0,
+                "expiration": 0,
+                "customComment": "TV Close",
+                "price": 0.0
             }
 
             logger.info(f"Closing position with info: {transaction_info}")
