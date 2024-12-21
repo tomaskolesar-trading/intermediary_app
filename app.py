@@ -1,4 +1,3 @@
-```python
 import os
 import json
 import logging
@@ -21,7 +20,7 @@ XTB_PASSWORD = os.environ.get('XTB_PASSWORD', "K193652744T")
 # Symbol mapping between TradingView and XTB
 SYMBOL_MAPPING = {
     "BTCUSD": "BITCOIN",
-    "EURUSD": "EURUSD",
+    "EURUSD": "EURUSD", 
     "US500": "US500",
     "SPX500": "US500",
     "SP500": "US500"
@@ -277,4 +276,3 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-```
