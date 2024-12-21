@@ -23,6 +23,19 @@ app = Flask(__name__)
 XTB_USER_ID = os.environ.get('XTB_USER_ID', "17190137")
 XTB_PASSWORD = os.environ.get('XTB_PASSWORD', "K193652744T")
 
+# Symbol mapping between TradingView and XTB
+SYMBOL_MAPPING = {
+    "BTCUSD": "BITCOIN",
+    "EURUSD": "EURUSD", 
+    "US500": "US500",
+    "SPX500": "US500",
+    "SP500": "US500"
+}
+
+def convert_symbol(tv_symbol: str) -> str:
+    """Convert TradingView symbol to XTB symbol"""
+    return SYMBOL_MAPPING.get(tv_symbol, tv_symbol)
+
 class PositionState:
     def __init__(self, redis_client):
         self.redis = redis_client
@@ -69,6 +82,48 @@ class XTBSession:
         self.stream_client = None
         self.stream_session_id = None
         self.position_state = PositionState(redis_client)
+
+    def authenticate(self):
+        try:
+            logger.info("Starting authentication process...")
+            logger.info(f"Connecting to {DEFAULT_XAPI_ADDRESS}:{DEFAULT_XAPI_PORT}")
+            
+            self.client = APIClient()
+            logger.info("APIClient created successfully")
+            
+            login_response = self.client.execute(
+                loginCommand(userId=XTB_USER_ID, password=XTB_PASSWORD, appName="Python Trading Bot")
+            )
+            logger.info(f"Raw login response: {login_response}")
+            
+            if login_response.get('status', False):
+                self.stream_session_id = login_response.get('streamSessionId')
+                logger.info("Authentication successful")
+                return True
+            
+            logger.error(f"Authentication failed with response: {login_response}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Authentication error: {str(e)}")
+            return False
+
+    def get_symbol_price(self, symbol: str):
+        """Get current market price for a symbol"""
+        try:
+            symbol_response = self.client.commandExecute("getSymbol", {
+                "symbol": symbol
+            })
+            logger.info(f"Symbol info response: {symbol_response}")
+            
+            if not symbol_response.get("status"):
+                return None
+                
+            return symbol_response["returnData"]
+            
+        except Exception as e:
+            logger.error(f"Error getting symbol price: {e}")
+            return None
 
     def place_trade(self, symbol: str, action: str, volume: float):
         try:
@@ -178,8 +233,6 @@ class XTBSession:
             logger.error(f"Error closing position: {str(e)}")
             return {"error": str(e), "status": False}
 
-    # ... (rest of the XTBSession methods remain the same) ...
-
 # Initialize XTB session
 xtb_session = XTBSession()
 
@@ -220,7 +273,7 @@ def webhook():
         except ValueError:
             return jsonify({"error": "Invalid volume format"}), 400
 
-        symbol = data["symbol"]
+        symbol = convert_symbol(data["symbol"])
         result = xtb_session.place_trade(symbol=symbol, action=action, volume=volume)
         
         if not result.get("status", False):
@@ -231,6 +284,10 @@ def webhook():
     except Exception as e:
         logger.error(f"Webhook processing error: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route("/")
+def index():
+    return "XTB TradingView Webhook Listener is running!"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
