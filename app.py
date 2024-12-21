@@ -14,9 +14,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Redis setup
+# Redis setup with SSL configuration
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
-redis_client = redis.from_url(REDIS_URL)
+try:
+    redis_client = redis.from_url(
+        REDIS_URL,
+        ssl_cert_reqs=None  # Ignore SSL certificate verification
+    )
+except Exception as e:
+    logger.error(f"Redis connection error: {str(e)}")
+    redis_client = None
 
 app = Flask(__name__)
 
@@ -46,36 +53,56 @@ class PositionState:
 
     def can_buy(self, symbol: str) -> bool:
         """Check if we can open a buy position"""
+        if not self.redis:
+            return True
         position = self.redis.get(self._get_key(symbol))
         return position is None or not json.loads(position).get('active', False)
 
     def can_sell(self, symbol: str) -> bool:
         """Check if we can close (sell) a position"""
+        if not self.redis:
+            return True
         position = self.redis.get(self._get_key(symbol))
         return position is not None and json.loads(position).get('active', False)
 
     def record_buy(self, symbol: str):
         """Record a buy position"""
+        if not self.redis:
+            return
         position_data = {
             'active': True,
             'timestamp': datetime.now().isoformat(),
             'type': 'buy'
         }
-        self.redis.set(self._get_key(symbol), json.dumps(position_data))
+        try:
+            self.redis.set(self._get_key(symbol), json.dumps(position_data))
+        except Exception as e:
+            logger.error(f"Error recording buy: {str(e)}")
 
     def record_sell(self, symbol: str):
         """Record a position closure"""
+        if not self.redis:
+            return
         position_data = {
             'active': False,
             'timestamp': datetime.now().isoformat(),
             'type': 'sell'
         }
-        self.redis.set(self._get_key(symbol), json.dumps(position_data))
+        try:
+            self.redis.set(self._get_key(symbol), json.dumps(position_data))
+        except Exception as e:
+            logger.error(f"Error recording sell: {str(e)}")
 
     def get_position(self, symbol: str):
         """Get current position state"""
-        position = self.redis.get(self._get_key(symbol))
-        return json.loads(position) if position else None
+        if not self.redis:
+            return None
+        try:
+            position = self.redis.get(self._get_key(symbol))
+            return json.loads(position) if position else None
+        except Exception as e:
+            logger.error(f"Error getting position: {str(e)}")
+            return None
 
 class XTBSession:
     def __init__(self):
