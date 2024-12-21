@@ -1,3 +1,4 @@
+```python
 import os
 import json
 import logging
@@ -77,12 +78,7 @@ class XTBSession:
                 self.open_positions = {}
                 for trade in trades["returnData"]:
                     if not trade["closed"]:  # Only store open positions
-                        self.open_positions[trade["symbol"]] = {
-                            "cmd": trade["cmd"],
-                            "position": trade["position"],
-                            "order": trade["order"],
-                            "volume": trade["volume"]
-                        }
+                        self.open_positions[trade["symbol"]] = trade
                 logger.info(f"Updated open positions: {self.open_positions}")
                 return trades
             return {"status": False, "error": "Failed to get trades"}
@@ -93,23 +89,32 @@ class XTBSession:
     def close_position(self, symbol: str):
         """Close position for given symbol"""
         try:
-            position = self.open_positions.get(symbol)
+            trades = self.client.commandExecute("getTrades", {
+                "openedOnly": True
+            })
+            
+            if not trades.get("status"):
+                return {"error": "Failed to get trades", "status": False}
+                
+            position = None
+            for trade in trades["returnData"]:
+                if trade["symbol"] == symbol and not trade["closed"]:
+                    position = trade
+                    break
+                    
             if not position:
                 return {"error": f"No open position found for {symbol}", "status": False}
 
-            # Use a different format for closing
+            # Use opposite cmd (1 for BUY position)
+            close_cmd = 1 if position["cmd"] == 0 else 0
+
             transaction_info = {
-                "cmd": 0,  # Original command
+                "cmd": close_cmd,
                 "symbol": symbol,
                 "volume": float(position["volume"]),
-                "position": int(position["position"]),  # Use position ID
-                "tp": 0.0,
-                "sl": 0.0,
-                "type": TransactionType.ORDER_CLOSE,
-                "offset": 0,
-                "expiration": 0,
-                "customComment": "TV Close",
-                "price": 0.0
+                "order": int(position["order"]),
+                "price": float(position["close_price"]),
+                "type": 2,  # ORDER_CLOSE
             }
 
             logger.info(f"Closing position with info: {transaction_info}")
@@ -122,6 +127,8 @@ class XTBSession:
             })
 
             logger.info(f"Close position response: {response}")
+            if response.get("status"):
+                self.update_positions()
             return response
 
         except Exception as e:
@@ -270,3 +277,4 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+```
