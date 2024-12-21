@@ -5,6 +5,7 @@ import redis
 from datetime import datetime
 from flask import Flask, request, jsonify
 from xAPIConnector import *
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -82,30 +83,60 @@ class XTBSession:
         self.stream_client = None
         self.stream_session_id = None
         self.position_state = PositionState(redis_client)
+        self.last_auth_time = 0
+        self.auth_timeout = 300  # 5 minutes timeout
 
-    def authenticate(self):
+    def authenticate(self, force=False):
+        """Authenticate with XTB API with retry logic"""
+        current_time = time.time()
+        
+        # Return cached client if still valid
+        if not force and self.client and (current_time - self.last_auth_time) < self.auth_timeout:
+            return True
+
         try:
-            logger.info("Starting authentication process...")
-            logger.info(f"Connecting to {DEFAULT_XAPI_ADDRESS}:{DEFAULT_XAPI_PORT}")
+            # Close existing connection if any
+            if self.client:
+                try:
+                    self.client.disconnect()
+                except:
+                    pass
+                self.client = None
+
+            max_retries = 3
+            retry_delay = 2  # seconds
+
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Authentication attempt {attempt + 1}/{max_retries}")
+                    self.client = APIClient()
+                    
+                    login_response = self.client.execute(
+                        loginCommand(userId=XTB_USER_ID, password=XTB_PASSWORD, appName="Python Trading Bot")
+                    )
+                    
+                    if login_response.get('status', False):
+                        self.stream_session_id = login_response.get('streamSessionId')
+                        self.last_auth_time = current_time
+                        logger.info("Authentication successful")
+                        return True
+                    
+                    logger.error(f"Authentication failed on attempt {attempt + 1}: {login_response}")
+                    
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    
+                except Exception as e:
+                    logger.error(f"Authentication error on attempt {attempt + 1}: {str(e)}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
             
-            self.client = APIClient()
-            logger.info("APIClient created successfully")
-            
-            login_response = self.client.execute(
-                loginCommand(userId=XTB_USER_ID, password=XTB_PASSWORD, appName="Python Trading Bot")
-            )
-            logger.info(f"Raw login response: {login_response}")
-            
-            if login_response.get('status', False):
-                self.stream_session_id = login_response.get('streamSessionId')
-                logger.info("Authentication successful")
-                return True
-            
-            logger.error(f"Authentication failed with response: {login_response}")
             return False
             
         except Exception as e:
-            logger.error(f"Authentication error: {str(e)}")
+            logger.error(f"Fatal authentication error: {str(e)}")
             return False
 
     def get_symbol_price(self, symbol: str):
@@ -127,9 +158,9 @@ class XTBSession:
 
     def place_trade(self, symbol: str, action: str, volume: float):
         try:
-            # Authenticate if needed
-            if not self.client or not self.authenticate():
-                logger.error("Authentication failed")
+            # Force new authentication
+            if not self.authenticate(force=True):
+                logger.error("Failed to authenticate for trade")
                 return {"error": "Authentication failed", "status": False}
 
             action = action.lower()
@@ -236,24 +267,14 @@ class XTBSession:
 # Initialize XTB session
 xtb_session = XTBSession()
 
-@app.route("/positions")
-def get_positions():
-    """Get current positions"""
-    if not xtb_session.client:
-        if not xtb_session.authenticate():
-            return jsonify({"error": "Failed to authenticate"}), 500
-    
-    trades = xtb_session.client.commandExecute("getTrades", {"openedOnly": True})
-    return jsonify(trades)
-
-@app.route("/position/<symbol>")
-def get_position(symbol):
-    """Get position state for a symbol"""
-    position = xtb_session.position_state.get_position(symbol)
-    return jsonify({"symbol": symbol, "position": position})
+@app.route("/")
+def index():
+    """Root endpoint - health check"""
+    return "XTB TradingView Webhook Listener is running!"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    """Handle incoming webhook requests"""
     try:
         data = request.json
         logger.info(f"Received webhook: {data}")
@@ -285,9 +306,55 @@ def webhook():
         logger.error(f"Webhook processing error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/")
-def index():
-    return "XTB TradingView Webhook Listener is running!"
+@app.route("/positions")
+def get_positions():
+    """Get current positions"""
+    try:
+        if not xtb_session.authenticate():
+            return jsonify({"error": "Failed to authenticate"}), 500
+        
+        trades = xtb_session.client.commandExecute("getTrades", {"openedOnly": True})
+        return jsonify(trades)
+    except Exception as e:
+        logger.error(f"Error getting positions: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/position/<symbol>")
+def get_position(symbol):
+    """Get position state for a symbol"""
+    try:
+        position = xtb_session.position_state.get_position(symbol)
+        return jsonify({"symbol": symbol, "position": position})
+    except Exception as e:
+        logger.error(f"Error getting position state: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/test-connection")
+def test_connection():
+    """Test XTB connection with detailed status"""
+    try:
+        # Force new authentication
+        result = xtb_session.authenticate(force=True)
+        
+        if result:
+            return jsonify({
+                "connected": True,
+                "session_id": xtb_session.stream_session_id,
+                "auth_time": datetime.fromtimestamp(xtb_session.last_auth_time).isoformat()
+            })
+        else:
+            return jsonify({
+                "connected": False,
+                "error": "Authentication failed",
+                "last_attempt": datetime.fromtimestamp(xtb_session.last_auth_time).isoformat() if xtb_session.last_auth_time > 0 else None
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Connection test error: {e}")
+        return jsonify({
+            "connected": False,
+            "error": str(e)
+        }), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
